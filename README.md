@@ -1,27 +1,27 @@
 # 破茧 (PoJian)
 
-**破茧而出，跳出微信的封闭生态。**
+**破茧而出，跳出封闭生态。**
 
-微信内置浏览器不允许用户使用系统浏览器打开公众号文章，破茧通过本地 HTTPS 代理拦截微信浏览器流量，自动将公众号文章在系统默认浏览器中打开，并关闭微信内置浏览器页面。
+WX 内置浏览器不允许用户使用系统浏览器打开公众号文章，破茧通过本地 HTTPS 代理拦截 WX 浏览器流量，自动将公众号文章在系统默认浏览器中打开，并关闭 WX 内置浏览器页面。
 
 ---
 
-**Break free from WeChat's walled garden.**
+**Break free from WX's walled garden.**
 
-WeChat's built-in browser prevents users from opening Official Account articles in their system browser. PoJian runs a local HTTPS proxy to intercept WeChat browser traffic, automatically opens articles in your default system browser, and closes the WeChat browser page.
+WX's built-in browser prevents users from opening Official Account articles in their system browser. PoJian runs a local HTTPS proxy to intercept WX browser traffic, automatically opens articles in your default system browser, and closes the WX browser page.
 
 ## 功能 / Features
 
-- 自动检测微信公众号文章页面，用系统默认浏览器打开
-- 自动关闭微信内置浏览器页面 (Windows)
+- 自动检测 WX 公众号文章页面，用系统默认浏览器打开
+- 自动关闭 WX 内置浏览器页面 (Windows)
 - 智能 URL 去重，同一篇文章不会重复打开
 - 构建干净的文章 URL，去除追踪参数
 - 支持 Windows / macOS / Linux
 
 ---
 
-- Automatically detects WeChat Official Account articles and opens them in the system default browser
-- Automatically closes the WeChat built-in browser page (Windows)
+- Automatically detects WX Official Account articles and opens them in the system default browser
+- Automatically closes the WX built-in browser page (Windows)
 - Smart URL deduplication - same article won't be opened twice
 - Builds clean article URLs by stripping tracking parameters
 - Supports Windows / macOS / Linux
@@ -51,25 +51,25 @@ mp:
 
 ### 3. 使用 / Use
 
-启动程序后，在微信 PC 端打开任意公众号文章，系统浏览器会自动打开该文章，微信内置浏览器页面会自动关闭。
+启动程序后，在 WX PC 端打开任意公众号文章，系统浏览器会自动打开该文章，WX 内置浏览器页面会自动关闭。
 
-After starting the program, open any Official Account article in WeChat PC. The article will automatically open in your system browser, and the WeChat browser page will close automatically.
+After starting the program, open any Official Account article in WX PC. The article will automatically open in your system browser, and the WX browser page will close automatically.
 
 ## 工作原理 / How It Works
 
-1. 程序启动后设置系统 HTTPS 代理，拦截微信内置浏览器的网络流量
-2. 微信打开公众号文章后，页面内的 API 请求会经过代理
+1. 程序启动后设置系统 HTTPS 代理，拦截 WX 内置浏览器的网络流量
+2. WX 打开公众号文章后，页面内的 API 请求会经过代理
 3. 程序从这些请求的 `Referer` 头中提取正在浏览的文章 URL
 4. 首次检测到新文章时，调用系统默认浏览器打开干净的文章链接
-5. 发送 Ctrl+W 关闭微信内置浏览器页面 (Windows)
+5. 发送 Ctrl+W 关闭 WX 内置浏览器页面 (Windows)
 
 ---
 
-1. The program sets up a system HTTPS proxy to intercept WeChat browser traffic
-2. After WeChat opens an article, subsequent API requests pass through the proxy
+1. The program sets up a system HTTPS proxy to intercept WX browser traffic
+2. After WX opens an article, subsequent API requests pass through the proxy
 3. The program extracts the article URL from the `Referer` header of these requests
 4. On first detection of a new article, it opens a clean URL in the system default browser
-5. Sends Ctrl+W to close the WeChat built-in browser page (Windows)
+5. Sends Ctrl+W to close the WX built-in browser page (Windows)
 
 ## 编译 / Build
 
