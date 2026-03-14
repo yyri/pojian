@@ -7,6 +7,8 @@
 dist/
 vendor
 nul
+.claude/
+.qoder/
 
 wx_video_download*
 wx_channel*
