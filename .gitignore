@@ -6,6 +6,7 @@
 *.p12
 dist/
 vendor
+nul
 
 wx_video_download*
 wx_channel*

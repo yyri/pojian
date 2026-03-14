@@ -1,151 +1,107 @@
-# 微信视频号下载器
+# 破茧 (PoJian)
 
-体积小、使用简单、支持 macOS 和 Windows 系统。
+**破茧而出，跳出微信的封闭生态。**
 
-## 使用说明
+微信内置浏览器不允许用户使用系统浏览器打开公众号文章，破茧通过本地 HTTPS 代理拦截微信浏览器流量，自动将公众号文章在系统默认浏览器中打开，并关闭微信内置浏览器页面。
 
-下载[构建包](https://github.com/ltaoo/wx_channels_download/releases)，**以管理员身份运行**，首次打开会自动安装证书，然后启动服务。
+---
 
-当终端提示「代理服务启动成功」就说明可以使用了。
+**Break free from WeChat's walled garden.**
 
-![正常使用](./docs/assets/app_screenshot1.png)
+WeChat's built-in browser prevents users from opening Official Account articles in their system browser. PoJian runs a local HTTPS proxy to intercept WeChat browser traffic, automatically opens articles in your default system browser, and closes the WeChat browser page.
 
-> 已安装证书会跳过安装证书步骤。
+## 功能 / Features
 
-打开微信 PC 端，点击需要下载的视频，在视频下方的操作按钮一栏，会多出一个下载按钮，如下所示
+- 自动检测微信公众号文章页面，用系统默认浏览器打开
+- 自动关闭微信内置浏览器页面 (Windows)
+- 智能 URL 去重，同一篇文章不会重复打开
+- 构建干净的文章 URL，去除追踪参数
+- 支持 Windows / macOS / Linux
 
-![视频下载按钮](./docs/assets/screenshot1.png)
+---
 
-如果没有，在页面侧边或底部会有悬浮按钮，拥有相同的功能
+- Automatically detects WeChat Official Account articles and opens them in the system default browser
+- Automatically closes the WeChat built-in browser page (Windows)
+- Smart URL deduplication - same article won't be opened twice
+- Builds clean article URLs by stripping tracking parameters
+- Supports Windows / macOS / Linux
 
-| 首页推荐 | 视频详情页 |
-| --- | --- |
-| ![首页推荐](docs/assets/fixed_btn1.jpg) | ![视频详情页](docs/assets/fixed_btn2.jpg) |
+## 使用方法 / Usage
 
+### 1. 下载并运行 / Download & Run
 
-等待视频开始播放，然后暂停视频，点击下载按扭即可下载视频。下载成功后，会在上方显示已下载的文件，下载文件名最后面会标志该视频质量。
+以**管理员身份**运行终端（程序需要安装 HTTPS 证书和设置系统代理）：
 
-![视频下载成功](./docs/assets/screenshot2.png)
-
-下载按钮默认会下载视频号默认质量的视频（即当前播放的视频，一般都是体积最小的），可以在下拉菜单下载其他质量的视频
-<br>
-不同视频这里显示的选项是不同的，没有找到对 xWT111 具体的说明，属于什么分辨率、尺寸多大等等。
-<br>
-经过测试，如果原始视频有 104MB，这里尺寸最大的是 xWT111 为 17MB，最小的是 xWT98 为 7MB。
-
-![不同质量视频尺寸统计](./docs/assets/screenshot14.png)
-
-仅供参考。
-
-
-## 开发说明
-
-先以 管理员身份 启动终端，然后 `go run main.go` 即可。
-
-## 打包
-
-### windows
+Run terminal as **Administrator** (the program needs to install HTTPS certificates and set system proxy):
 
 ```bash
+pojian.exe
+```
+
+### 2. 配置 / Configuration
+
+程序首次运行会在当前目录生成 `config.yaml`，核心配置项：
+
+A `config.yaml` will be generated on first run. Key configuration:
+
+```yaml
+mp:
+  openInSystemBrowser: true   # 自动用系统浏览器打开公众号文章 / Auto-open articles in system browser
+```
+
+### 3. 使用 / Use
+
+启动程序后，在微信 PC 端打开任意公众号文章，系统浏览器会自动打开该文章，微信内置浏览器页面会自动关闭。
+
+After starting the program, open any Official Account article in WeChat PC. The article will automatically open in your system browser, and the WeChat browser page will close automatically.
+
+## 工作原理 / How It Works
+
+1. 程序启动后设置系统 HTTPS 代理，拦截微信内置浏览器的网络流量
+2. 微信打开公众号文章后，页面内的 API 请求会经过代理
+3. 程序从这些请求的 `Referer` 头中提取正在浏览的文章 URL
+4. 首次检测到新文章时，调用系统默认浏览器打开干净的文章链接
+5. 发送 Ctrl+W 关闭微信内置浏览器页面 (Windows)
+
+---
+
+1. The program sets up a system HTTPS proxy to intercept WeChat browser traffic
+2. After WeChat opens an article, subsequent API requests pass through the proxy
+3. The program extracts the article URL from the `Referer` header of these requests
+4. On first detection of a new article, it opens a clean URL in the system default browser
+5. Sends Ctrl+W to close the WeChat built-in browser page (Windows)
+
+## 编译 / Build
+
+```bash
+# Windows
 go build -ldflags="-s -w"
+
+# macOS
+CGO_ENABLED=1 GOOS=darwin go build -trimpath -ldflags="-s -w" -o pojian
+
+# Linux
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o pojian
 ```
 
-打包后可以使用 `upx` 压缩，进一步减小体积
+## 致谢 / Acknowledgments
 
-```bash
-upx wx_channel
+本项目基于 [wx_channels_download](https://github.com/ltaoo/wx_channels_download) 项目开发，感谢原作者 [@ltaoo](https://github.com/ltaoo) 提供的 HTTPS 代理拦截和 JS 注入框架。
+
+破茧的功能代码由 [Qoder](https://qoder.com) AI 编程助手编写。
+
+This project is built upon [wx_channels_download](https://github.com/ltaoo/wx_channels_download). Thanks to [@ltaoo](https://github.com/ltaoo) for the HTTPS proxy interception and JS injection framework.
+
+The feature code of PoJian was written by [Qoder](https://qoder.com), an AI coding assistant.
+
+## 免责声明 / Disclaimer
+
 ```
+本项目为开源项目，仅用于技术交流学习和研究目的。
+请遵守法律法规，请勿用作任何非法用途，否则造成一切后果自负。
+若您下载并使用即视为您知晓并同意。
 
-#### macOS 交叉编译 Windows
-
-```bash
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o wx_video_download_windows_x86_64.exe
-```
-
-#### Windows SunnyNet 版本（需要 Docker）
-
-SunnyNet 版本需要 CGO 和 MinGW 交叉编译，在 macOS 上需要使用 Docker 构建：
-
-```bash
-# 1. 生成 vendor 目录
-go mod vendor
-
-# 2. 使用 Docker 构建
-docker run --rm \
-  -v "$(pwd):/workspace" \
-  -w /workspace \
-  golang:1.20 \
-  bash -c '
-    apt-get update && apt-get install -y gcc-mingw-w64 g++-mingw-w64
-
-    # 应用 SunnyNet 补丁（修复 MinGW 兼容性问题）
-    SUNNYNET_DIR="vendor/github.com/qtgolang/SunnyNet"
-    mv $SUNNYNET_DIR/src/ProcessDrv/Proxifier/proxifier.hpp $SUNNYNET_DIR/src/ProcessDrv/Proxifier/Proxifier.hpp
-    sed -i "s/typedef struct _MIB_TCPROW2 {/typedef struct _MIB_TCPROW2_CUSTOM {/" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.h
-    sed -i "s/} MIB_TCPROW2, \*PMIB_TCPROW2;/} MIB_TCPROW2_CUSTOM, *PMIB_TCPROW2_CUSTOM;/" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.h
-    sed -i "s/typedef struct _MIB_TCPTABLE2 {/typedef struct _MIB_TCPTABLE2_CUSTOM {/" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.h
-    sed -i "s/MIB_TCPROW2 table\[ANY_SIZE\];/MIB_TCPROW2_CUSTOM table[ANY_SIZE];/" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.h
-    sed -i "s/} MIB_TCPTABLE2, \*PMIB_TCPTABLE2;/} MIB_TCPTABLE2_CUSTOM, *PMIB_TCPTABLE2_CUSTOM;/" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.h
-    sed -i "s/typedef DWORD (WINAPI \* GetTcpTable2)(PMIB_TCPTABLE2 TcpTable, PULONG SizePointer, BOOL Order);/typedef DWORD (WINAPI * GetTcpTable2_CUSTOM)(PMIB_TCPTABLE2_CUSTOM TcpTable, PULONG SizePointer, BOOL Order);/" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.h
-    sed -i "s/GetTcpTable2 pGetTcpTable2;/GetTcpTable2_CUSTOM pGetTcpTable2;/" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.c
-    sed -i "s/(GetTcpTable2)/(GetTcpTable2_CUSTOM)/g" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.c
-    sed -i "s/(PMIB_TCPTABLE2)/(PMIB_TCPTABLE2_CUSTOM)/g" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.c
-    sed -i "s/PMIB_TCPTABLE2 pTcpTable;/PMIB_TCPTABLE2_CUSTOM pTcpTable;/" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.c
-    sed -i "s/PMIB_TCPTABLE2 tcpTable/PMIB_TCPTABLE2_CUSTOM tcpTable/g" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.c
-    sed -i "s/pTcpTable = (MIB_TCPTABLE2\*)/pTcpTable = (MIB_TCPTABLE2_CUSTOM*)/g" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.c
-    sed -i "s/tcpTable = (MIB_TCPTABLE2\*)/tcpTable = (MIB_TCPTABLE2_CUSTOM*)/g" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.c
-    sed -i "s/MIB_TCPROW2 \*row/MIB_TCPROW2_CUSTOM *row/g" $SUNNYNET_DIR/src/iphlpapi/c_iphlpapi_tcp.c
-
-    # 构建
-    CGO_ENABLED=1 CC=x86_64-w64-mingw32-gcc CXX=x86_64-w64-mingw32-g++ \
-    GOOS=windows GOARCH=amd64 \
-    go build -mod=vendor -tags sunnynet -ldflags "-s -w -extldflags \"-static\"" \
-    -o wx_video_download_sunnynet.exe .
-  '
-```
-
-### macOS
-
-```bash
-CGO_ENABLED=1 GOOS=darwin SDKROOT=$(xcrun --sdk macosx --show-sdk-path) go build -trimpath -ldflags="-s -w" -o wx_video_download
-```
-
-```bash
-CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 SDKROOT=$(xcrun --sdk macosx --show-sdk-path) go build -trimpath -ldflags="-s -w" -o wx_video_download
-```
- 
-### Linux
-
-```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o wx_video_download
-
-$env:CGO_ENABLED=0; $env:GOOS="linux"; $env:GOARCH="amd64"; go build -trimpath -ldflags="-s -w" -o wx_video_download
-
-upx --best --lzma wx_video_download
-```
-
-```bash
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -trimpath -ldflags="-s -w" -o wx_video_download
-```
-
-## 感谢
-
-前端解密部分参考自
-<br>
-https://github.com/kanadeblisst00/WechatVideoSniffer2.0
-<br>
-
-后端解密代码来自
-<br>
-https://github.com/Hanson/WechatSphDecrypt
-
-
-## ⚠️ 免责声明
-
-```text
-本项目为开源项目
-仅用于技术交流学习和研究的目的
-请遵守法律法规,请勿用作任何非法用途
-否则造成一切后果自负
-若您下载并使用即视为您知晓并同意
+This is an open-source project for technical learning and research purposes only.
+Please comply with applicable laws and regulations. Do not use for any illegal purposes.
+By downloading and using this software, you acknowledge and agree to these terms.
 ```

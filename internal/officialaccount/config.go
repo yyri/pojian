@@ -10,7 +10,8 @@ import (
 
 type OfficialAccountConfig struct {
 	RootDir                   string
-	Disabled                  bool `json:"officialServerDisabled"` // 是否禁用公众号服务
+	Disabled                  bool `json:"officialServerDisabled"`  // 是否禁用公众号服务
+	OpenInSystemBrowser       bool `json:"openInSystemBrowser"`     // 公众号文章自动用系统浏览器打开
 	DebugShowError            bool
 	PagespyEnabled            bool
 	Protocol                  string
@@ -36,6 +37,7 @@ func NewOfficialAccountConfig(c *config.Config, remote_mode bool) *OfficialAccou
 		RootDir:                   c.RootDir,
 		DebugShowError:            viper.GetBool("debug.error"),
 		PagespyEnabled:            viper.GetBool("pagespy.enabled"),
+		OpenInSystemBrowser:       viper.GetBool("mp.openInSystemBrowser"),
 		Protocol:                  protocol,
 		Hostname:                  hostname,
 		Port:                      port,

@@ -33,6 +33,7 @@ channels:
 
 mp:
   disabled: true
+  openInSystemBrowser: false
   remoteServer:
     protocol: "http"
     hostname: ""

@@ -229,6 +229,33 @@
     };
     return $btn;
   }
+  function render_open_in_browser_button(opt) {
+    var $btn = document.createElement("div");
+    $btn.style.cssText = `display: flex; align-items: center; margin-left: 16px; font-size: 14px; cursor: pointer;`;
+    var text = `<span class="sns_opr_gap" style="margin-left: 1px">浏览器打开</span>`;
+    if (opt.type === 2) {
+      $btn.style.cssText = `display: flex; align-items: center; flex-direction: column; margin-left: 4px; font-size: 14px; cursor: pointer;`;
+      text = `<span class="" style="width: 56px; text-align: center; font-size: 12px;">浏览器打开</span>`;
+    }
+    $btn.innerHTML = `<span style="position: relative; top: -6px; width: 24px; height: 24px; font-size: 24px;">${ExternalLinkIcon}</span>${text}`;
+    $btn.onclick = async function () {
+      var [err, data] = await WXU.request({
+        method: "POST",
+        url: "/__wx_mp_api/open_in_browser",
+        body: {
+          url: window.location.href,
+        },
+      });
+      if (err) {
+        WXU.error({
+          msg: err.message,
+        });
+        return;
+      }
+      WXU.toast("已在系统浏览器中打开");
+    };
+    return $btn;
+  }
   function insert_rss_button(acct) {
     if (!acct.biz || !acct.key) {
       return;
@@ -295,6 +322,18 @@
     });
     $container.insertBefore($btn, $container.lastElementChild);
   }
+  function insert_open_in_browser_button() {
+    var $wraps = document.querySelectorAll(".interaction_bar");
+    var $container = $wraps[$wraps.length - 1];
+    if (window.cgiDataNew.page_type === 2) {
+      $container = $wraps[0];
+    }
+    if (!$container || !$container.lastElementChild) {
+      return;
+    }
+    var $btn = render_open_in_browser_button({ type: window.cgiDataNew.page_type });
+    $container.insertBefore($btn, $container.lastElementChild);
+  }
   async function main() {
     if (location.pathname === "/s") {
       var _OfficialAccountCredentials = {
@@ -355,6 +394,7 @@
           insert_style();
           // insert_rss_button(_OfficialAccountCredentials);
           insert_download_button();
+          insert_open_in_browser_button();
         }, 800);
       });
     }

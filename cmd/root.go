@@ -38,9 +38,9 @@ var (
 )
 
 var root_cmd = &cobra.Command{
-	Use:   "wx_video_download",
-	Short: "启动下载程序",
-	Long:  "\n启动后将对网络请求进行代理，在微信视频号详情页面注入下载按钮",
+	Use:   "pojian",
+	Short: "破茧 - 用系统浏览器打开微信公众号文章",
+	Long:  "\n破茧 - 拦截微信内置浏览器请求，自动用系统默认浏览器打开公众号文章",
 	PreRun: func(cmd *cobra.Command, args []string) {
 	},
 	Run: func(cmd *cobra.Command, args []string) {
@@ -79,8 +79,8 @@ func root_command(cfg *config.Config) {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Printf("\nv%v\n", cfg.Version)
-	fmt.Printf("问题反馈 https://github.com/ltaoo/wx_channels_download/issues\n\n")
+	fmt.Printf("\n破茧 v%v\n", cfg.Version)
+	fmt.Printf("破茧而出，跳出微信的封闭生态\n\n")
 
 	zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	zerolog.TimeFieldFormat = time.RFC3339Nano
@@ -109,8 +109,10 @@ func root_command(cfg *config.Config) {
 	}
 	mgr := manager.NewServerManager()
 	interceptor_srv := interceptor.NewInterceptorServer(interceptor_cfg, CertFiles)
-	if !official_cfg.Disabled {
+	if !official_cfg.Disabled || official_cfg.OpenInSystemBrowser {
 		interceptor_srv.Interceptor.AddPostPlugin(officialaccount.CreateOfficialAccountInterceptorPlugin(official_cfg, interceptor.Assets))
+	}
+	if !official_cfg.Disabled {
 		interceptor_srv.Interceptor.AddPostPlugin(&proxy.Plugin{
 			Match: "official.weixin.qq.com",
 			Target: &proxy.TargetConfig{
@@ -167,10 +169,10 @@ func root_command(cfg *config.Config) {
 	if !buildtags.UsingSunnyNet {
 		if !interceptor_cfg.ProxySetSystem {
 			color.Red(fmt.Sprintf("当前未设置系统代理,请通过软件将流量转发至 %v", interceptor_srv.Addr()))
-			color.Red("设置成功后再打开视频号页面下载")
+			color.Red("设置成功后再打开视频号或公众号页面")
 		} else {
 			color.Green(fmt.Sprintf("已修改系统代理为 %v", interceptor_srv.Addr()))
-			color.Green("请打开需要下载的视频号页面进行下载")
+			color.Green("请打开视频号或公众号页面")
 			has_changed := false
 			expected_addr := interceptor_srv.Addr()
 			go func() {
