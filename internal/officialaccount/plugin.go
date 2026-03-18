@@ -79,8 +79,7 @@ func CreateOfficialAccountInterceptorPlugin(cfg *OfficialAccountConfig, files *i
 				}
 				cleanURL := buildCleanArticleURL(refURL)
 				fmt.Printf("\n破茧 - 在系统浏览器中打开公众号文章\n%s\n\n", cleanURL)
-				// 先关闭微信内置浏览器页面，再打开系统浏览器
-				go system.SendCloseWindow()
+				// 不关闭任何页面，只在系统浏览器中打开
 				system.OpenURL(cleanURL)
 			}
 		},
