@@ -31,9 +31,9 @@ var (
 var error_prefix = color.RedString("[ERROR]")
 
 var root_cmd = &cobra.Command{
-	Use:   "wx_video_download",
-	Short: "启动下载程序",
-	Long:  "\n启动后将对网络请求进行代理，在微信视频号详情页面注入下载按钮",
+	Use:   "pojian",
+	Short: "破茧 - 用系统浏览器打开微信公众号文章",
+	Long:  "\n破茧 - 拦截微信内置浏览器请求，自动用系统默认浏览器打开公众号文章",
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		stdio_command_invoked = cmd.Name() == "mcp"
 		is_root_start_command := !cmd.HasParent()

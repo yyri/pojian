@@ -37,8 +37,8 @@ func Start(cfg *config.Config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	fmt.Printf("\nv%v\n", cfg.Version)
-	fmt.Printf("Feedback/Issues https://github.com/ltaoo/wx_channels_download/issues\n\n")
+	fmt.Printf("\n破茧 v%v\n", cfg.Version)
+	fmt.Printf("破茧而出，跳出微信的封闭生态\n\n")
 
 	logger := cfg.Logger()
 	cache_registry, err := cache.NewProviderRegistry(cfg.WorkDir)

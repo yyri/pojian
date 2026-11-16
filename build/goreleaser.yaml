@@ -23,7 +23,7 @@ builds:
       - windows
       - linux
     main: .
-    binary: wx_video_download
+    binary: pojian
     ldflags:
       - -s -w
       - -X main.Mode=release
@@ -47,7 +47,7 @@ builds:
       - amd64
       - arm64
     main: .
-    binary: wx_video_download
+    binary: pojian
     ldflags:
       - -s -w
       - -X main.Mode=release
@@ -70,7 +70,7 @@ builds:
       - amd64
       - arm64
     main: .
-    binary: wx_video_download
+    binary: pojian
     ldflags:
       - -X main.Mode=release
     tags:
@@ -92,7 +92,7 @@ builds:
   #   goarch:
   #     - amd64
   #   main: .
-  #   binary: wx_video_download
+  #   binary: pojian
   #   ldflags:
   #     - -s -w
   #     - -X main.Mode=release
@@ -106,7 +106,7 @@ archives:
       - cross
       - macos
     format: tar.gz
-    name_template: "wx_video_download_{{ .Tag }}_{{ .Os }}_{{ if eq .Arch \"amd64\" }}x86_64{{ else if eq .Arch \"386\" }}x86{{ else }}{{ .Arch }}{{ end }}"
+    name_template: "pojian_{{ .Tag }}_{{ .Os }}_{{ if eq .Arch \"amd64\" }}x86_64{{ else if eq .Arch \"386\" }}x86{{ else }}{{ .Arch }}{{ end }}"
     files:
       - src: internal/config/config.template.yaml
         dst: config.yaml
@@ -121,7 +121,7 @@ archives:
     ids:
       - windows_plain
     format: zip
-    name_template: "wx_video_download_safe_{{ .Tag }}_{{ .Os }}_{{ if eq .Arch \"amd64\" }}x86_64{{ else if eq .Arch \"386\" }}x86{{ else }}{{ .Arch }}{{ end }}"
+    name_template: "pojian_safe_{{ .Tag }}_{{ .Os }}_{{ if eq .Arch \"amd64\" }}x86_64{{ else if eq .Arch \"386\" }}x86{{ else }}{{ .Arch }}{{ end }}"
     files:
       - src: internal/config/config.template.yaml
         dst: config.yaml
@@ -132,7 +132,7 @@ archives:
   #   ids:
   #     - windows_sunnynet
   #   format: zip
-  #   name_template: "wx_video_download_sunnynet_{{ .Tag }}_{{ .Os }}_{{ if eq .Arch \"amd64\" }}x86_64{{ else if eq .Arch \"386\" }}x86{{ else }}{{ .Arch }}{{ end }}"
+  #   name_template: "pojian_sunnynet_{{ .Tag }}_{{ .Os }}_{{ if eq .Arch \"amd64\" }}x86_64{{ else if eq .Arch \"386\" }}x86{{ else }}{{ .Arch }}{{ end }}"
   #   files:
   #     - src: internal/config/config.template.yaml
   #       dst: config.yaml
@@ -148,7 +148,7 @@ upx:
 
 
 checksum:
-  name_template: "wx_video_download_{{ .Tag }}_checksums.txt"
+  name_template: "pojian_{{ .Tag }}_checksums.txt"
 
 changelog:
   sort: asc
