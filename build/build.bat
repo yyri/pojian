@@ -56,7 +56,7 @@ echo Building Windows x86_64...
 set CGO_ENABLED=0
 set GOOS=windows
 set GOARCH=amd64
-set "BUILD_OUTPUT=%OUTPUT_DIR%\wx_video_download_windows_x86_64.exe"
+set "BUILD_OUTPUT=%OUTPUT_DIR%\pojian_windows_x86_64.exe"
 set "FINAL_OUTPUT=%OUTPUT_DIR%\wx_channel.exe"
 pushd "%PROJECT_DIR%"
 call "%PROJECT_DIR%\build\build-go.bat" -trimpath -tags "with_gvisor,embed_inject,sqlite_only,embed_frontend_inject" -ldflags="-s -w -X main.Mode=release" -o "%BUILD_OUTPUT%" .
@@ -65,7 +65,7 @@ if errorlevel 1 (
     echo ERROR: Windows build failed.
     exit /b 1
 )
-call :package_zip "%BUILD_OUTPUT%" "windows_x86_64" "wx_video_download"
+call :package_zip "%BUILD_OUTPUT%" "windows_x86_64" "pojian"
 if errorlevel 1 (
     popd
     exit /b 1
@@ -112,7 +112,7 @@ set "PACKAGE_PLATFORM=%~2"
 set "PACKAGE_PREFIX=%~3"
 for %%I in ("%PACKAGE_BINARY%") do set "PACKAGE_BINARY_NAME=%%~nxI"
 set "PACKAGE_ARCHIVE=%OUTPUT_DIR%\%PACKAGE_PREFIX%_%RELEASE_VERSION%_%PACKAGE_PLATFORM%.zip"
-set "PACKAGE_DIR=%TEMP%\wx_video_download_package_%RANDOM%_%RANDOM%"
+set "PACKAGE_DIR=%TEMP%\pojian_package_%RANDOM%_%RANDOM%"
 
 mkdir "%PACKAGE_DIR%"
 if errorlevel 1 (

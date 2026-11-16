@@ -10,10 +10,10 @@
     "#1": {
       "0409": {
         "identity": {
-          "name": "wx_video_download",
+          "name": "pojian",
           "version": "1.0.0"
         },
-        "description": "视频号视频下载工具",
+        "description": "破茧-WX链接监听工具",
         "minimum-os": "win7",
         "execution-level": "as invoker",
         "ui-access": false,
@@ -40,16 +40,16 @@
         },
         "info": {
           "0409": {
-            "Comments": "视频号视频下载工具",
+            "Comments": "破茧-WX链接监听工具",
             "CompanyName": "com.funzm",
-            "FileDescription": "视频号视频下载工具",
+            "FileDescription": "破茧-WX链接监听工具",
             "FileVersion": "1.0.0.0",
-            "InternalName": "wx_video_download",
+            "InternalName": "pojian",
             "LegalCopyright": "Copyright © 2024",
             "LegalTrademarks": "",
-            "OriginalFilename": "wx_video_download.exe",
+            "OriginalFilename": "pojian.exe",
             "PrivateBuild": "",
-            "ProductName": "视频号视频下载工具",
+            "ProductName": "破茧-WX链接监听工具",
             "ProductVersion": "1.0.0.0",
             "SpecialBuild": ""
           }
