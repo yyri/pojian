@@ -84,6 +84,7 @@ channels:
     forceCheckAllFeeds: false
 
 mp:
+  openInSystemBrowser: false
   remoteServer:
     protocol: "http"
     hostname: ""

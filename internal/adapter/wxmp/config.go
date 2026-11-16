@@ -11,6 +11,7 @@ import (
 
 // MPPluginConfig implements config.Configurable for wxmp (official account) plugin config.
 type MPPluginConfig struct {
+	OpenInSystemBrowser       bool
 	RemoteServerProtocol      string
 	RemoteServerHostname      string
 	RemoteServerPort          int
@@ -24,6 +25,14 @@ func (c *MPPluginConfig) ConfigNamespace() string { return "mp" }
 
 func (c *MPPluginConfig) ConfigSchema() []config.ConfigField {
 	return []config.ConfigField{
+		{
+			Key:         "openInSystemBrowser",
+			Type:        config.ConfigTypeBool,
+			Default:     false,
+			Description: "公众号文章自动用系统默认浏览器打开（破茧）",
+			Title:       "系统浏览器打开文章",
+			Group:       "OfficialAccount",
+		},
 		{
 			Key:         "remoteServer.protocol",
 			Type:        config.ConfigTypeString,
@@ -88,6 +97,7 @@ func (c *MPPluginConfig) ConfigSchema() []config.ConfigField {
 }
 
 func (c *MPPluginConfig) ApplyConfig(sub *config.SubViper) error {
+	c.OpenInSystemBrowser = sub.GetBool("openInSystemBrowser")
 	c.RemoteServerProtocol = sub.GetString("remoteServer.protocol")
 	c.RemoteServerHostname = sub.GetString("remoteServer.hostname")
 	c.RemoteServerPort = sub.GetInt("remoteServer.port")
@@ -106,6 +116,7 @@ func new_official_account_config(cfg *config.Config) *wxmp.OfficialAccountConfig
 	settings := &wxmp.OfficialAccountConfig{
 		RootDir:                   cfg.RootDir,
 		Enabled:                   true,
+		OpenInSystemBrowser:       cfg.GetBool("mp.openInSystemBrowser"),
 		WorkDir:                   cfg.WorkDir,
 		DebugShowError:            cfg.GetBool("debug.error"),
 		Protocol:                  protocol,
