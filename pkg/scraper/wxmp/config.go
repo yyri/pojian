@@ -7,6 +7,7 @@ type OfficialAccountConfig struct {
 	RootDir                   string   `json:"rootDir"`
 	WorkDir                   string   `json:"workDir"`
 	Enabled                   bool     `json:"officialAccountEnabled"`
+	OpenInSystemBrowser       bool     `json:"openInSystemBrowser"` // 公众号文章自动用系统浏览器打开
 	DebugShowError            bool     `json:"debugShowError"`
 	Protocol                  string   `json:"protocol"`
 	Hostname                  string   `json:"hostname"`
