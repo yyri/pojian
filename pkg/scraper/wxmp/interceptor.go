@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ltaoo/echo"
 	"github.com/rs/zerolog"
@@ -50,8 +51,8 @@ func NewInterceptorPlugins(cfg InterceptorConfig, logger *zerolog.Logger) []*ech
 		PlatformPrefix: InjectAssetsPath + "/",
 		PlatformFS:     InjectAssets(),
 	}
-	// 破茧：已打开的文章URL去重，防止同一篇文章被反复打开
-	var opened_urls sync.Map
+	// 破茧：文章打开去重状态（key 为规范化文章URL，一周内重复打开直接跳过并记日志）
+	var article_states sync.Map
 	plugin := &echo.Plugin{
 		Match: "qq.com",
 		OnRequest: func(ctx *echo.Context) {
@@ -67,7 +68,13 @@ func NewInterceptorPlugins(cfg InterceptorConfig, logger *zerolog.Logger) []*ech
 			// 微信内置浏览器加载文章HTML不走系统代理，但后续的API请求（如 /mp/jsmonitor）会走代理
 			// 我们通过这些请求的 Referer 头来识别正在浏览的文章
 			if settings.OpenInSystemBrowser {
-				auto_open_article_from_referer(ctx, &opened_urls)
+				// 文章页面（重新）加载时做标记，用于区分"重新点开"与"页面内持续请求"
+				if ctx.Req.Method == "GET" && ctx.Req.URL.Path == "/s" {
+					if key := normalize_article_url(ctx.Req.URL); key != "" {
+						mark_article_reload(&article_states, key)
+					}
+				}
+				auto_open_article_from_referer(ctx, &article_states, logger)
 			}
 			frontend.MockStaticAsset(ctx.Req.URL.Path, ctx.Req.Header, func(status int, headers map[string]string, body string) {
 				ctx.Mock(status, headers, body)
@@ -239,8 +246,54 @@ func handle_open_in_browser(ctx *echo.Context) {
 	ctx.Mock(200, json_headers, `{"code":0,"msg":"ok"}`)
 }
 
+// articleOpenDedupWindow 破茧：文章去重窗口，窗口内重复打开直接跳过
+const articleOpenDedupWindow = 7 * 24 * time.Hour
+
+// article_open_state 破茧：单篇文章的打开去重状态
+type article_open_state struct {
+	mu          sync.Mutex
+	last_opened time.Time
+	reload_seen bool // 文章页面正在（重新）加载的标记，由首个带 Referer 的请求消费
+}
+
+// get_article_state 取或创建文章去重状态
+func get_article_state(states *sync.Map, key string) *article_open_state {
+	if v, ok := states.Load(key); ok {
+		return v.(*article_open_state)
+	}
+	v, _ := states.LoadOrStore(key, &article_open_state{})
+	return v.(*article_open_state)
+}
+
+// mark_article_reload 标记文章页面正在（重新）加载
+func mark_article_reload(states *sync.Map, key string) {
+	state := get_article_state(states, key)
+	state.mu.Lock()
+	state.reload_seen = true
+	state.mu.Unlock()
+}
+
+// consume_reload_decision 判定本次触发是否应打开系统浏览器。
+// 仅在"页面重新加载后的首个请求"或"首次见到该文章"时判定；
+// 返回 (应打开, 属于窗口内重复跳过)。
+func (s *article_open_state) consume_reload_decision(now time.Time) (bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	opened_before := !s.last_opened.IsZero()
+	eligible := s.reload_seen || !opened_before
+	s.reload_seen = false
+	if !eligible {
+		return false, false
+	}
+	if opened_before && now.Sub(s.last_opened) < articleOpenDedupWindow {
+		return false, true
+	}
+	s.last_opened = now
+	return true, false
+}
+
 // auto_open_article_from_referer 破茧：从代理请求的 Referer 识别文章并自动在系统浏览器打开
-func auto_open_article_from_referer(ctx *echo.Context, opened_urls *sync.Map) {
+func auto_open_article_from_referer(ctx *echo.Context, states *sync.Map, logger *zerolog.Logger) {
 	referer := ctx.Req.Header.Get("Referer")
 	if referer == "" {
 		return
@@ -257,11 +310,23 @@ func auto_open_article_from_referer(ctx *echo.Context, opened_urls *sync.Map) {
 	if article_key == "" {
 		return
 	}
-	if _, loaded := opened_urls.LoadOrStore(article_key, true); loaded {
-		return // 已经打开过
+	state := get_article_state(states, article_key)
+	should_open, duplicate := state.consume_reload_decision(time.Now())
+	if !should_open && !duplicate {
+		return // 同一次页面浏览期间的后续请求，静默跳过
 	}
 	clean_url := build_clean_article_url(ref_url)
+	if duplicate {
+		fmt.Printf("\n破茧 - 跳过重复打开（%d天内已打开过）\n%s\n\n", int(articleOpenDedupWindow.Hours()/24), clean_url)
+		if logger != nil {
+			logger.Info().Str("article", clean_url).Msg("pojian skip duplicate article open")
+		}
+		return
+	}
 	fmt.Printf("\n破茧 - 在系统浏览器中打开公众号文章\n%s\n\n", clean_url)
+	if logger != nil {
+		logger.Info().Str("article", clean_url).Msg("pojian open article in system browser")
+	}
 	// 不关闭任何页面，只在系统浏览器中打开
 	_ = system.OpenURL(clean_url)
 }
