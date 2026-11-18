@@ -317,7 +317,7 @@ func auto_open_article_from_referer(ctx *echo.Context, states *sync.Map, logger 
 	}
 	clean_url := build_clean_article_url(ref_url)
 	if duplicate {
-		fmt.Printf("\n破茧 - 跳过重复打开（%d天内已打开过）\n%s\n\n", int(articleOpenDedupWindow.Hours()/24), clean_url)
+		fmt.Printf("\n破茧 - 检测到重复打开，已跳过（%d天内已打开过）\n%s\n\n", int(articleOpenDedupWindow.Hours()/24), clean_url)
 		if logger != nil {
 			logger.Info().Str("article", clean_url).Msg("pojian skip duplicate article open")
 		}
