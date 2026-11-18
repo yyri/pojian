@@ -32,12 +32,18 @@ import (
 	"wx_channel/pkg/system"
 )
 
+// BuildTime 由编译时注入（-X wx_channel/internal/application.BuildTime），用于确认运行的是新版
+var BuildTime string
+
 // Start initializes and runs the local admin, API, and interceptor services.
 func Start(cfg *config.Config) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	fmt.Printf("\n破茧 v%v\n", cfg.Version)
+	if BuildTime != "" {
+		fmt.Printf("编译时间 %v\n", BuildTime)
+	}
 	fmt.Printf("破茧而出，跳出微信的封闭生态\n\n")
 
 	logger := cfg.Logger()
