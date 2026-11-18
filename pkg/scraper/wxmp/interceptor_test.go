@@ -2,6 +2,7 @@ package wxmp
 
 import (
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 )
@@ -18,6 +19,14 @@ func TestNormalizeArticleURL(t *testing.T) {
 		{
 			"https://mp.weixin.qq.com/s/AbCdEf?foo=1",
 			"/s/AbCdEf?foo=1",
+		},
+		{
+			"https://mp.weixin.qq.com/s?__biz=MzU1Njc2NzM5Mg%3D%3D&idx=1&mid=2247485120&sn=9992a4354324e05ba44043bdbe49d69c&poc_token=HD_z_GqjPdvSJnj7jCtS2vmM7Xv4cX16BS0kOpAa",
+			"biz=MzU1Njc2NzM5Mg==&mid=2247485120&idx=1&sn=9992a4354324e05ba44043bdbe49d69c",
+		},
+		{
+			"https://mp.weixin.qq.com/s?__biz=MzU1Njc2NzM5Mg%3D%3D&idx=1&mid=2247485120&sn=9992a4354324e05ba44043bdbe49d69c&poc_token=HJTy_Gqj7040nFBDxG2GzAMiiVGqnqZoyk8lj_SA",
+			"biz=MzU1Njc2NzM5Mg==&mid=2247485120&idx=1&sn=9992a4354324e05ba44043bdbe49d69c",
 		},
 	}
 	for _, c := range cases {
@@ -84,5 +93,24 @@ func TestConsumeReloadDecision(t *testing.T) {
 	edge := &article_open_state{last_opened: now.Add(-articleOpenDedupWindow + time.Second), reload_seen: true}
 	if open, dup := edge.consume_reload_decision(now); open || !dup {
 		t.Errorf("one second inside window should be duplicate, got open=%v dup=%v", open, dup)
+	}
+}
+
+func TestArticleStatesPersistRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/pojian_opened_articles.json"
+
+	var states sync.Map
+	states.Store("k1", &article_open_state{last_opened: time.Now().Add(-time.Hour)})
+	states.Store("k2", &article_open_state{last_opened: time.Now().Add(-articleOpenDedupWindow * 2)}) // 窗口外，应被清理
+	save_article_states(&states, path)
+
+	var restored sync.Map
+	load_article_states(&restored, path)
+	if _, ok := restored.Load("k1"); !ok {
+		t.Error("k1 within window should be restored")
+	}
+	if _, ok := restored.Load("k2"); ok {
+		t.Error("k2 outside window should be pruned")
 	}
 }
