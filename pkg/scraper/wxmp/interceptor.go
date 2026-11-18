@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -53,6 +55,12 @@ func NewInterceptorPlugins(cfg InterceptorConfig, logger *zerolog.Logger) []*ech
 	}
 	// 破茧：文章打开去重状态（key 为规范化文章URL，一周内重复打开直接跳过并记日志）
 	var article_states sync.Map
+	// 去重状态持久化到 workdir，跨重启保持一周窗口
+	opened_articles_path := ""
+	if settings.WorkDir != "" {
+		opened_articles_path = filepath.Join(settings.WorkDir, "pojian_opened_articles.json")
+		load_article_states(&article_states, opened_articles_path)
+	}
 	plugin := &echo.Plugin{
 		Match: "qq.com",
 		OnRequest: func(ctx *echo.Context) {
@@ -74,7 +82,7 @@ func NewInterceptorPlugins(cfg InterceptorConfig, logger *zerolog.Logger) []*ech
 						mark_article_reload(&article_states, key)
 					}
 				}
-				auto_open_article_from_referer(ctx, &article_states, logger)
+				auto_open_article_from_referer(ctx, &article_states, opened_articles_path, logger)
 			}
 			frontend.MockStaticAsset(ctx.Req.URL.Path, ctx.Req.Header, func(status int, headers map[string]string, body string) {
 				ctx.Mock(status, headers, body)
@@ -293,7 +301,7 @@ func (s *article_open_state) consume_reload_decision(now time.Time) (bool, bool)
 }
 
 // auto_open_article_from_referer 破茧：从代理请求的 Referer 识别文章并自动在系统浏览器打开
-func auto_open_article_from_referer(ctx *echo.Context, states *sync.Map, logger *zerolog.Logger) {
+func auto_open_article_from_referer(ctx *echo.Context, states *sync.Map, persist_path string, logger *zerolog.Logger) {
 	referer := ctx.Req.Header.Get("Referer")
 	if referer == "" {
 		return
@@ -327,8 +335,59 @@ func auto_open_article_from_referer(ctx *echo.Context, states *sync.Map, logger 
 	if logger != nil {
 		logger.Info().Str("article", clean_url).Msg("pojian open article in system browser")
 	}
+	if persist_path != "" {
+		save_article_states(states, persist_path)
+	}
 	// 不关闭任何页面，只在系统浏览器中打开
 	_ = system.OpenURL(clean_url)
+}
+
+// load_article_states 破茧：启动时从磁盘恢复去重状态（只恢复窗口内的条目）
+func load_article_states(states *sync.Map, path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var persisted map[string]string
+	if err := json.Unmarshal(data, &persisted); err != nil {
+		return
+	}
+	now := time.Now()
+	for key, ts := range persisted {
+		opened_at, err := time.Parse(time.RFC3339, ts)
+		if err != nil {
+			continue
+		}
+		if now.Sub(opened_at) >= articleOpenDedupWindow {
+			continue
+		}
+		states.Store(key, &article_open_state{last_opened: opened_at})
+	}
+}
+
+// save_article_states 破茧：打开文章后把去重状态落盘（窗口外条目顺手清理）
+func save_article_states(states *sync.Map, path string) {
+	snapshot := make(map[string]string)
+	now := time.Now()
+	states.Range(func(k, v any) bool {
+		state, ok := v.(*article_open_state)
+		if !ok {
+			return true
+		}
+		state.mu.Lock()
+		opened_at := state.last_opened
+		state.mu.Unlock()
+		if opened_at.IsZero() || now.Sub(opened_at) >= articleOpenDedupWindow {
+			return true
+		}
+		snapshot[k.(string)] = opened_at.Format(time.RFC3339)
+		return true
+	})
+	data, err := json.MarshalIndent(snapshot, "", "  ")
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(path, data, 0o600)
 }
 
 // normalize_article_url 从公众号文章URL中提取核心标识参数作为去重key
