@@ -2,6 +2,7 @@ package wxmp
 
 import (
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -93,6 +94,53 @@ func TestConsumeReloadDecision(t *testing.T) {
 	edge := &article_open_state{last_opened: now.Add(-articleOpenDedupWindow + time.Second), reload_seen: true}
 	if open, dup := edge.consume_reload_decision(now); open || !dup {
 		t.Errorf("one second inside window should be duplicate, got open=%v dup=%v", open, dup)
+	}
+}
+
+func TestDecidePageLoad(t *testing.T) {
+	now := time.Now()
+	s := &article_open_state{}
+
+	// 首次加载：打开
+	if open, dup := s.decide_page_load(now); !open || dup {
+		t.Errorf("first page load should open, got open=%v dup=%v", open, dup)
+	}
+	// 窗口内再次加载：跳过并标记重复
+	if open, dup := s.decide_page_load(now.Add(time.Hour)); open || !dup {
+		t.Errorf("re-load within window should be duplicate, got open=%v dup=%v", open, dup)
+	}
+	// 窗口外再次加载：重新打开
+	if open, dup := s.decide_page_load(now.Add(articleOpenDedupWindow + time.Hour)); !open || dup {
+		t.Errorf("re-load after window should open, got open=%v dup=%v", open, dup)
+	}
+}
+
+func TestIsFullArticleURL(t *testing.T) {
+	full, _ := url.Parse("https://mp.weixin.qq.com/s?__biz=MzA3&mid=2247&idx=1&sn=abc&chksm=xyz")
+	if !is_full_article_url(full) {
+		t.Error("full article url should match")
+	}
+	partial, _ := url.Parse("https://mp.weixin.qq.com/s?chksm=xyz&scene=27")
+	if is_full_article_url(partial) {
+		t.Error("url without biz/mid/sn should not match")
+	}
+	short, _ := url.Parse("https://mp.weixin.qq.com/s/AbCdEf")
+	if is_full_article_url(short) {
+		t.Error("short link should not match")
+	}
+}
+
+func TestBuildClosePageHTML(t *testing.T) {
+	opened := build_close_page_html(true, false)
+	if !strings.Contains(opened, "已在系统浏览器打开") {
+		t.Error("opened page should show opened title")
+	}
+	dup := build_close_page_html(false, true)
+	if !strings.Contains(dup, "未重复打开") {
+		t.Error("duplicate page should show duplicate title")
+	}
+	if !strings.Contains(opened, "close_now") {
+		t.Error("page should contain auto close script")
 	}
 }
 

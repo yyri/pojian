@@ -77,10 +77,13 @@ func NewInterceptorPlugins(cfg InterceptorConfig, logger *zerolog.Logger) []*ech
 			// 我们通过这些请求的 Referer 头来识别正在浏览的文章
 			if settings.OpenInSystemBrowser {
 				// 文章页面（重新）加载时做标记，用于区分"重新点开"与"页面内持续请求"
-				if ctx.Req.Method == "GET" && ctx.Req.URL.Path == "/s" {
-					if key := normalize_article_url(ctx.Req.URL); key != "" {
-						mark_article_reload(&article_states, key)
+				if ctx.Req.Method == "GET" && ctx.Req.URL.Path == "/s" && is_full_article_url(ctx.Req.URL) {
+					if settings.CloseWeChatView {
+						// 破茧：文章不在微信内置浏览器打开——直接转系统浏览器并返回自动关闭页
+						handle_article_page_load(ctx, &article_states, opened_articles_path, logger)
+						return
 					}
+					mark_article_reload(&article_states, normalize_article_url(ctx.Req.URL))
 				}
 				auto_open_article_from_referer(ctx, &article_states, opened_articles_path, logger)
 			}
@@ -300,7 +303,95 @@ func (s *article_open_state) consume_reload_decision(now time.Time) (bool, bool)
 	return true, false
 }
 
+// decide_page_load 文章页面加载请求（closeWeChatView 模式）触发的判定：
+// 页面加载本身就是"点开"信号，无需 reload 标记。
+func (s *article_open_state) decide_page_load(now time.Time) (bool, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.last_opened.IsZero() && now.Sub(s.last_opened) < articleOpenDedupWindow {
+		return false, true
+	}
+	s.last_opened = now
+	return true, false
+}
+
+// is_full_article_url 判断是否为带完整标识参数的公众号文章URL
+func is_full_article_url(u *url.URL) bool {
+	q := u.Query()
+	return q.Get("__biz") != "" && q.Get("mid") != "" && q.Get("sn") != ""
+}
+
+// handle_article_page_load 破茧：文章页加载请求直接在系统浏览器打开，
+// 并返回一个自动关闭的本地页面，让微信内置浏览器不再展示文章。
+func handle_article_page_load(ctx *echo.Context, states *sync.Map, persist_path string, logger *zerolog.Logger) {
+	req_url := ctx.Req.URL
+	state := get_article_state(states, normalize_article_url(req_url))
+	should_open, duplicate := state.decide_page_load(time.Now())
+	clean_url := build_clean_article_url(req_url)
+	if should_open {
+		fmt.Printf("\n破茧 - 在系统浏览器中打开公众号文章\n%s\n\n", clean_url)
+		if logger != nil {
+			logger.Info().Str("article", clean_url).Msg("pojian open article in system browser")
+		}
+		if persist_path != "" {
+			save_article_states(states, persist_path)
+		}
+		_ = system.OpenURL(clean_url)
+	} else {
+		fmt.Printf("\n破茧 - 检测到重复打开，已跳过（%d天内已打开过）\n%s\n\n", int(articleOpenDedupWindow.Hours()/24), clean_url)
+		if logger != nil {
+			logger.Info().Str("article", clean_url).Msg("pojian skip duplicate article open")
+		}
+	}
+	ctx.Mock(200, map[string]string{
+		"Content-Type":  "text/html; charset=utf-8",
+		"Cache-Control": "no-store",
+	}, build_close_page_html(should_open, duplicate))
+}
+
+// build_close_page_html 破茧：返回给微信内置浏览器的自动关闭页
+func build_close_page_html(opened, duplicate bool) string {
+	title := "已在系统浏览器打开"
+	if !opened && duplicate {
+		title = "7天内已打开过，未重复打开"
+	}
+	return fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<style>
+body { margin:0; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; background:#f7f7f7; }
+.card { position:fixed; left:50%%; top:40%%; transform:translate(-50%%,-50%%); text-align:center; width:80%%; }
+.icon { font-size:44px; color:#07c160; }
+.title { font-size:17px; color:#333; margin:12px 0 6px; }
+.desc { font-size:13px; color:#999; margin-bottom:24px; word-break:break-all; }
+button { padding:10px 32px; border:none; border-radius:6px; background:#07c160; color:#fff; font-size:15px; }
+</style>
+</head>
+<body>
+<div class="card">
+<div class="icon">&#10003;</div>
+<div class="title">%s</div>
+<button onclick="close_now()">关闭此页</button>
+</div>
+<script>
+function close_now() {
+  try { if (window.WeixinJSBridge) { WeixinJSBridge.call("closeWindow"); } } catch (e) {}
+  try { window.close(); } catch (e) {}
+}
+document.addEventListener("WeixinJSBridgeReady", close_now, false);
+window.addEventListener("load", function () {
+  setTimeout(close_now, 400);
+  setTimeout(close_now, 1500);
+});
+close_now();
+</script>
+</body>
+</html>`, title)
+}
 // auto_open_article_from_referer 破茧：从代理请求的 Referer 识别文章并自动在系统浏览器打开
+// （兜底路径：当文章 HTML 请求未走代理时仍可通过 Referer 检测）
 func auto_open_article_from_referer(ctx *echo.Context, states *sync.Map, persist_path string, logger *zerolog.Logger) {
 	referer := ctx.Req.Header.Get("Referer")
 	if referer == "" {

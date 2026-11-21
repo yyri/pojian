@@ -85,6 +85,7 @@ channels:
 
 mp:
   openInSystemBrowser: false
+  closeWeChatView: false
   remoteServer:
     protocol: "http"
     hostname: ""
