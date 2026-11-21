@@ -55,6 +55,8 @@ func NewInterceptorPlugins(cfg InterceptorConfig, logger *zerolog.Logger) []*ech
 	}
 	// 破茧：文章打开去重状态（key 为规范化文章URL，一周内重复打开直接跳过并记日志）
 	var article_states sync.Map
+	// 破茧：待关闭的文章（直接打开场景，文档未走代理，等文章页 JS 资源经过代理时打关窗补丁）
+	var close_pending sync.Map
 	// 去重状态持久化到 workdir，跨重启保持一周窗口
 	opened_articles_path := ""
 	if settings.WorkDir != "" {
@@ -67,6 +69,20 @@ func NewInterceptorPlugins(cfg InterceptorConfig, logger *zerolog.Logger) []*ech
 			if ctx.Req.URL.Hostname() != "mp.weixin.qq.com" {
 				return
 			}
+			// pojian-diag: 记录文章页文档请求是否到达插件
+			if strings.HasPrefix(ctx.Req.URL.Path, "/s") {
+				fmt.Printf("破茧诊断: 文章页请求到达 method=%s 文章页=%v referer=%s\n",
+					ctx.Req.Method, is_article_page_url(ctx.Req.URL), truncate_str(ctx.Req.Header.Get("Referer"), 60))
+				if logger != nil {
+					logger.Info().
+						Str("component", "pojian-diag").
+						Str("method", ctx.Req.Method).
+						Bool("is_article_page", is_article_page_url(ctx.Req.URL)).
+						Str("query", truncate_str(ctx.Req.URL.RawQuery, 200)).
+						Str("referer", truncate_str(ctx.Req.Header.Get("Referer"), 120)).
+						Msg("article page request seen")
+				}
+			}
 			// 破茧：处理"在浏览器中打开"按钮的 API 请求
 			if ctx.Req.URL.Path == "/__wx_mp_api/open_in_browser" {
 				handle_open_in_browser(ctx)
@@ -77,7 +93,7 @@ func NewInterceptorPlugins(cfg InterceptorConfig, logger *zerolog.Logger) []*ech
 			// 我们通过这些请求的 Referer 头来识别正在浏览的文章
 			if settings.OpenInSystemBrowser {
 				// 文章页面（重新）加载时做标记，用于区分"重新点开"与"页面内持续请求"
-				if ctx.Req.Method == "GET" && ctx.Req.URL.Path == "/s" && is_full_article_url(ctx.Req.URL) {
+				if ctx.Req.Method == "GET" && is_article_page_url(ctx.Req.URL) {
 					if settings.CloseWeChatView {
 						// 破茧：文章不在微信内置浏览器打开——直接转系统浏览器并返回自动关闭页
 						handle_article_page_load(ctx, &article_states, opened_articles_path, logger)
@@ -85,7 +101,7 @@ func NewInterceptorPlugins(cfg InterceptorConfig, logger *zerolog.Logger) []*ech
 					}
 					mark_article_reload(&article_states, normalize_article_url(ctx.Req.URL))
 				}
-				auto_open_article_from_referer(ctx, &article_states, opened_articles_path, logger)
+				auto_open_article_from_referer(ctx, &article_states, &close_pending, opened_articles_path, settings.CloseWeChatView, logger)
 			}
 			frontend.MockStaticAsset(ctx.Req.URL.Path, ctx.Req.Header, func(status int, headers map[string]string, body string) {
 				ctx.Mock(status, headers, body)
@@ -97,8 +113,16 @@ func NewInterceptorPlugins(cfg InterceptorConfig, logger *zerolog.Logger) []*ech
 			})
 		},
 		OnResponse: func(ctx *echo.Context) {
+			if ctx.GetMockResponse() != nil {
+				return // 我们自己 mock 的响应，无需注入
+			}
 			response_content_type := strings.ToLower(ctx.GetResponseHeader("Content-Type"))
 			hostname := ctx.Req.URL.Hostname()
+			// 破茧：直接打开的文章（文档未走代理）——给文章页加载的 JS 资源打自动关窗补丁
+			if settings.CloseWeChatView && strings.Contains(response_content_type, "javascript") {
+				maybe_patch_article_close_snippet(ctx, &close_pending, logger)
+				return
+			}
 			if hostname != "mp.weixin.qq.com" || !strings.Contains(response_content_type, "text/html") {
 				return
 			}
@@ -260,11 +284,16 @@ func handle_open_in_browser(ctx *echo.Context) {
 // articleOpenDedupWindow 破茧：文章去重窗口，窗口内重复打开直接跳过
 const articleOpenDedupWindow = 7 * 24 * time.Hour
 
+// articleRefererGap 破茧：超过该间隔未再见到该文章的 Referer 请求，视为一次新的页面加载
+// （微信原生直接打开的文章文档不走代理，无法通过 /s 请求打 reload 标记，用间隔兜底识别）
+const articleRefererGap = 2 * time.Minute
+
 // article_open_state 破茧：单篇文章的打开去重状态
 type article_open_state struct {
-	mu          sync.Mutex
-	last_opened time.Time
-	reload_seen bool // 文章页面正在（重新）加载的标记，由首个带 Referer 的请求消费
+	mu            sync.Mutex
+	last_opened   time.Time
+	last_seen     time.Time // 最近一次带该文章 Referer 的请求时间
+	reload_seen   bool      // 文章页面正在（重新）加载的标记，由首个带 Referer 的请求消费
 }
 
 // get_article_state 取或创建文章去重状态
@@ -285,13 +314,17 @@ func mark_article_reload(states *sync.Map, key string) {
 }
 
 // consume_reload_decision 判定本次触发是否应打开系统浏览器。
-// 仅在"页面重新加载后的首个请求"或"首次见到该文章"时判定；
+// 触发条件（满足其一）：页面重新加载后的首个请求 / 首次见到该文章 /
+// 距上次见到该文章请求超过 articleRefererGap（原生直接打开的兜底）。
 // 返回 (应打开, 属于窗口内重复跳过)。
 func (s *article_open_state) consume_reload_decision(now time.Time) (bool, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	first_sighting := s.last_seen.IsZero()
+	stale_seen := !first_sighting && now.Sub(s.last_seen) > articleRefererGap
+	s.last_seen = now
 	opened_before := !s.last_opened.IsZero()
-	eligible := s.reload_seen || !opened_before
+	eligible := s.reload_seen || !opened_before || first_sighting || stale_seen
 	s.reload_seen = false
 	if !eligible {
 		return false, false
@@ -315,10 +348,16 @@ func (s *article_open_state) decide_page_load(now time.Time) (bool, bool) {
 	return true, false
 }
 
-// is_full_article_url 判断是否为带完整标识参数的公众号文章URL
-func is_full_article_url(u *url.URL) bool {
-	q := u.Query()
-	return q.Get("__biz") != "" && q.Get("mid") != "" && q.Get("sn") != ""
+// article_short_link_reg 破茧：公众号短链形式 /s/xxxx（纯字母数字token，区别于 /s/index.html 等页面）
+var article_short_link_reg = regexp.MustCompile(`^/s/[A-Za-z0-9_-]{10,}$`)
+
+// is_article_page_url 判断是否为公众号文章/贴图页URL：
+// /s 带 __biz 参数（文章、贴图 image_detail 页），或 /s/xxxx 短链形式
+func is_article_page_url(u *url.URL) bool {
+	if u.Path == "/s" {
+		return u.Query().Get("__biz") != ""
+	}
+	return article_short_link_reg.MatchString(u.Path)
 }
 
 // handle_article_page_load 破茧：文章页加载请求直接在系统浏览器打开，
@@ -347,6 +386,21 @@ func handle_article_page_load(ctx *echo.Context, states *sync.Map, persist_path 
 		"Content-Type":  "text/html; charset=utf-8",
 		"Cache-Control": "no-store",
 	}, build_close_page_html(should_open, duplicate))
+	if logger != nil {
+		logger.Info().
+			Str("component", "pojian-diag").
+			Bool("opened", should_open).
+			Bool("duplicate", duplicate).
+			Msg("article page mocked, close page returned")
+	}
+}
+
+// truncate_str 截断字符串用于日志
+func truncate_str(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "..."
 }
 
 // build_close_page_html 破茧：返回给微信内置浏览器的自动关闭页
@@ -376,23 +430,38 @@ button { padding:10px 32px; border:none; border-radius:6px; background:#07c160; 
 <button onclick="close_now()">关闭此页</button>
 </div>
 <script>
-function close_now() {
+function report(data) {
+  try {
+    fetch(((window.__d_config && window.__d_config.apiOrigin) || "http://127.0.0.1:2022") + "/report", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Object.assign({ level: "info", msg: "pojian-close-page-diag", href: String(location.href).slice(0, 120) }, data))
+    }).catch(function () {});
+  } catch (e) {}
+}
+function close_now(src) {
+  report({ phase: "close-attempt", via: src, bridge: typeof window.WeixinJSBridge !== "undefined", opener: !!window.opener });
   try { if (window.WeixinJSBridge) { WeixinJSBridge.call("closeWindow"); } } catch (e) {}
+  try { if (window.WeixinJSBridge) { WeixinJSBridge.invoke("closeWindow", {}, function () {}); } } catch (e) {}
   try { window.close(); } catch (e) {}
 }
-document.addEventListener("WeixinJSBridgeReady", close_now, false);
-window.addEventListener("load", function () {
-  setTimeout(close_now, 400);
-  setTimeout(close_now, 1500);
-});
-close_now();
+function go_back(src) {
+  report({ phase: "history-back", via: src });
+  try { history.back(); } catch (e) {}
+}
+report({ phase: "load", bridge: typeof window.WeixinJSBridge !== "undefined", opener: !!window.opener, readyState: document.readyState, historyLen: history.length });
+document.addEventListener("WeixinJSBridgeReady", function () { report({ phase: "bridge-ready" }); }, false);
+close_now("immediate");
+setTimeout(function () { go_back("t600"); }, 600);
+setTimeout(function () { close_now("t2000"); }, 2000);
+setTimeout(function () { go_back("t2600"); }, 2600);
 </script>
 </body>
 </html>`, title)
 }
 // auto_open_article_from_referer 破茧：从代理请求的 Referer 识别文章并自动在系统浏览器打开
 // （兜底路径：当文章 HTML 请求未走代理时仍可通过 Referer 检测）
-func auto_open_article_from_referer(ctx *echo.Context, states *sync.Map, persist_path string, logger *zerolog.Logger) {
+func auto_open_article_from_referer(ctx *echo.Context, states *sync.Map, close_pending *sync.Map, persist_path string, close_wechat_view bool, logger *zerolog.Logger) {
 	referer := ctx.Req.Header.Get("Referer")
 	if referer == "" {
 		return
@@ -401,7 +470,7 @@ func auto_open_article_from_referer(ctx *echo.Context, states *sync.Map, persist
 	if err != nil {
 		return
 	}
-	if ref_url.Host != "mp.weixin.qq.com" || ref_url.Path != "/s" {
+	if ref_url.Host != "mp.weixin.qq.com" || !is_article_page_url(ref_url) {
 		return
 	}
 	// 用规范化的URL做去重key（去掉无关参数，保留核心标识）
@@ -415,23 +484,150 @@ func auto_open_article_from_referer(ctx *echo.Context, states *sync.Map, persist
 		return // 同一次页面浏览期间的后续请求，静默跳过
 	}
 	clean_url := build_clean_article_url(ref_url)
+	// 直接打开场景：文档未走代理无法 mock，等文章页 JS 经过代理时打关窗补丁（覆盖缓存命不中的场合）
+	if close_pending != nil {
+		pending_reason := "opened"
+		if duplicate {
+			pending_reason = "duplicate"
+		}
+		close_pending.Store(article_key, pending_reason)
+	}
 	if duplicate {
 		fmt.Printf("\n破茧 - 检测到重复打开，已跳过（%d天内已打开过）\n%s\n\n", int(articleOpenDedupWindow.Hours()/24), clean_url)
 		if logger != nil {
-			logger.Info().Str("article", clean_url).Msg("pojian skip duplicate article open")
+			logger.Info().Str("component", "pojian-diag").Str("via", "referer-fallback").Str("article", clean_url).Msg("pojian skip duplicate article open")
+		}
+		// 文档未经代理、网页手段关不掉，定向关闭前台的微信内置浏览器窗口（此刻它仍是前台）
+		if close_wechat_view {
+			close_foreground_wechat_view(logger)
 		}
 		return
 	}
 	fmt.Printf("\n破茧 - 在系统浏览器中打开公众号文章\n%s\n\n", clean_url)
 	if logger != nil {
-		logger.Info().Str("article", clean_url).Msg("pojian open article in system browser")
+		logger.Info().Str("component", "pojian-diag").Str("via", "referer-fallback").Str("article", clean_url).Msg("pojian open article in system browser")
 	}
 	if persist_path != "" {
 		save_article_states(states, persist_path)
 	}
-	// 不关闭任何页面，只在系统浏览器中打开
+	// 先关微信窗口（此时前台还是微信文章页），再开系统浏览器（避免焦点被抢后关错窗口）
+	if close_wechat_view {
+		close_foreground_wechat_view(logger)
+	}
 	_ = system.OpenURL(clean_url)
 }
+
+// close_foreground_wechat_view 破茧：关闭当前前台的微信内置浏览器窗口（仅当属于 WeChatAppEx 进程）
+func close_foreground_wechat_view(logger *zerolog.Logger) {
+	if !system.CloseForegroundWeChatView() {
+		if logger != nil {
+			logger.Info().Str("component", "pojian-diag").Msg("os close skipped: foreground window is not WeChatAppEx")
+		}
+		return
+	}
+	fmt.Println("破茧 - 已请求关闭微信内文章窗口")
+	if logger != nil {
+		logger.Info().Str("component", "pojian-diag").Msg("pojian closed foreground wechat view window")
+	}
+}
+
+// maybe_patch_article_close_snippet 破茧：直接打开的文章页，其 JS 资源经过代理时
+// 追加自动关窗脚本（一次性消费 close_pending 标记），实现文章不在微信中展示。
+func maybe_patch_article_close_snippet(ctx *echo.Context, close_pending *sync.Map, logger *zerolog.Logger) {
+	referer := ctx.Req.Header.Get("Referer")
+	if referer == "" {
+		return
+	}
+	ref_url, err := url.Parse(referer)
+	if err != nil {
+		return
+	}
+	is_article := ref_url.Host == "mp.weixin.qq.com" && is_article_page_url(ref_url)
+	if !is_article {
+		return
+	}
+	article_key := normalize_article_url(ref_url)
+	if logger != nil {
+		logger.Info().
+			Str("component", "pojian-diag").
+			Str("host", ctx.Req.URL.Hostname()).
+			Str("path", ctx.Req.URL.Path).
+			Str("article", truncate_str(build_clean_article_url(ref_url), 120)).
+			Msg("article page subresource js seen")
+	}
+	reason, ok := close_pending.Load(article_key)
+	if !ok {
+		return
+	}
+	close_pending.Delete(article_key)
+	response_body, err := ctx.GetResponseBody()
+	if err != nil {
+		return
+	}
+	// 剥缓存头，确保微信侧不缓存打了补丁的 JS
+	ctx.SetResponseHeader("Cache-Control", "no-store")
+	ctx.DelResponseHeader("ETag")
+	ctx.DelResponseHeader("Last-Modified")
+	snippet := article_close_snippet_opened
+	if fmt.Sprint(reason) == "duplicate" {
+		snippet = article_close_snippet_duplicate
+	}
+	ctx.SetResponseBody(response_body + snippet)
+	if logger != nil {
+		logger.Info().
+			Str("component", "pojian-diag").
+			Str("reason", fmt.Sprint(reason)).
+			Msg("article page subresource js patched with close snippet")
+	}
+}
+
+// article_close_snippet_opened 破茧：追加到文章页 JS 的自动关窗脚本（首次打开场景）
+const article_close_snippet_opened = `
+;(function () {
+  if (window.__pojian_close_snippet) return;
+  window.__pojian_close_snippet = 1;
+  var box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:50%;top:20%;transform:translateX(-50%);z-index:2147483647;background:#fff;color:#333;padding:14px 20px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.2);font-size:14px;text-align:center;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;";
+  box.innerHTML = '<div style="color:#07c160;font-size:20px;margin-bottom:4px;">&#10003;</div><div>已在系统浏览器打开</div><button id="pojian-close-btn" style="margin-top:10px;padding:8px 24px;border:none;border-radius:6px;background:#07c160;color:#fff;font-size:14px;">关闭此页</button>';
+  function close_now() {
+    try { if (window.WeixinJSBridge) { WeixinJSBridge.call("closeWindow"); } } catch (e) {}
+    try { if (window.WeixinJSBridge) { WeixinJSBridge.invoke("closeWindow", {}, function () {}); } } catch (e) {}
+    try { window.close(); } catch (e) {}
+  }
+  box.querySelector("#pojian-close-btn").onclick = close_now;
+  function mount() {
+    if (document.body) { document.body.appendChild(box); } else { setTimeout(mount, 100); }
+  }
+  mount();
+  close_now();
+  setTimeout(function () { try { history.back(); } catch (e) {} }, 600);
+  setTimeout(close_now, 2000);
+})();
+`
+
+// article_close_snippet_duplicate 破茧：追加到文章页 JS 的自动关窗脚本（重复打开场景）
+const article_close_snippet_duplicate = `
+;(function () {
+  if (window.__pojian_close_snippet) return;
+  window.__pojian_close_snippet = 1;
+  var box = document.createElement("div");
+  box.style.cssText = "position:fixed;left:50%;top:20%;transform:translateX(-50%);z-index:2147483647;background:#fff;color:#333;padding:14px 20px;border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.2);font-size:14px;text-align:center;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;";
+  box.innerHTML = '<div style="color:#07c160;font-size:20px;margin-bottom:4px;">&#10003;</div><div>7天内已打开过，未重复打开</div><button id="pojian-close-btn" style="margin-top:10px;padding:8px 24px;border:none;border-radius:6px;background:#07c160;color:#fff;font-size:14px;">关闭此页</button>';
+  function close_now() {
+    try { if (window.WeixinJSBridge) { WeixinJSBridge.call("closeWindow"); } } catch (e) {}
+    try { if (window.WeixinJSBridge) { WeixinJSBridge.invoke("closeWindow", {}, function () {}); } } catch (e) {}
+    try { window.close(); } catch (e) {}
+  }
+  box.querySelector("#pojian-close-btn").onclick = close_now;
+  function mount() {
+    if (document.body) { document.body.appendChild(box); } else { setTimeout(mount, 100); }
+  }
+  mount();
+  close_now();
+  setTimeout(function () { try { history.back(); } catch (e) {} }, 600);
+  setTimeout(close_now, 2000);
+})();
+`
 
 // load_article_states 破茧：启动时从磁盘恢复去重状态（只恢复窗口内的条目）
 func load_article_states(states *sync.Map, path string) {
@@ -488,11 +684,11 @@ func normalize_article_url(u *url.URL) string {
 	mid := q.Get("mid")
 	idx := q.Get("idx")
 	sn := q.Get("sn")
-	if biz == "" && mid == "" && sn == "" {
-		// 短链接格式 /s/xxxx，用整个path+query作为key
-		return u.Path + "?" + u.RawQuery
+	if biz != "" && mid != "" && sn != "" {
+		return fmt.Sprintf("biz=%s&mid=%s&idx=%s&sn=%s", biz, mid, idx, sn)
 	}
-	return fmt.Sprintf("biz=%s&mid=%s&idx=%s&sn=%s", biz, mid, idx, sn)
+	// 短链 /s/xxxx、贴图 image_detail 等形式，用整个path+query作为key
+	return u.Path + "?" + u.RawQuery
 }
 
 // build_clean_article_url 构建干净的文章URL，只保留核心参数，去掉追踪/会话参数

@@ -29,6 +29,14 @@ func TestNormalizeArticleURL(t *testing.T) {
 			"https://mp.weixin.qq.com/s?__biz=MzU1Njc2NzM5Mg%3D%3D&idx=1&mid=2247485120&sn=9992a4354324e05ba44043bdbe49d69c&poc_token=HJTy_Gqj7040nFBDxG2GzAMiiVGqnqZoyk8lj_SA",
 			"biz=MzU1Njc2NzM5Mg==&mid=2247485120&idx=1&sn=9992a4354324e05ba44043bdbe49d69c",
 		},
+		{
+			"https://mp.weixin.qq.com/s/LCbnMZCLy5ReOCYBApR91Q",
+			"/s/LCbnMZCLy5ReOCYBApR91Q?",
+		},
+		{
+			"https://mp.weixin.qq.com/s?t=pages/image_detail&scene=1&__biz=MzYy&mid=123",
+			"/s?t=pages/image_detail&scene=1&__biz=MzYy&mid=123",
+		},
 	}
 	for _, c := range cases {
 		u, err := url.Parse(c.raw)
@@ -97,6 +105,27 @@ func TestConsumeReloadDecision(t *testing.T) {
 	}
 }
 
+func TestConsumeReloadDecisionRefererGap(t *testing.T) {
+	now := time.Now()
+
+	// 恢复自磁盘的状态（last_opened 有值、本进程未见过请求）：
+	// 原生直接打开旧文章 → 首次 sighting 视为页面加载，判定为重复
+	persisted := &article_open_state{last_opened: now.Add(-time.Hour)}
+	if open, dup := persisted.consume_reload_decision(now); open || !dup {
+		t.Errorf("restored state first sighting should be duplicate, got open=%v dup=%v", open, dup)
+	}
+
+	// 页面持续请求（间隔小于阈值）：静默
+	if open, dup := persisted.consume_reload_decision(now.Add(30 * time.Second)); open || dup {
+		t.Errorf("ongoing traffic within gap should be silent, got open=%v dup=%v", open, dup)
+	}
+
+	// 请求间隔超过阈值（视为重新打开页面）：再次判定为重复
+	if open, dup := persisted.consume_reload_decision(now.Add(articleRefererGap + time.Minute)); open || !dup {
+		t.Errorf("stale sighting should be duplicate, got open=%v dup=%v", open, dup)
+	}
+}
+
 func TestDecidePageLoad(t *testing.T) {
 	now := time.Now()
 	s := &article_open_state{}
@@ -115,18 +144,30 @@ func TestDecidePageLoad(t *testing.T) {
 	}
 }
 
-func TestIsFullArticleURL(t *testing.T) {
+func TestIsArticlePageURL(t *testing.T) {
 	full, _ := url.Parse("https://mp.weixin.qq.com/s?__biz=MzA3&mid=2247&idx=1&sn=abc&chksm=xyz")
-	if !is_full_article_url(full) {
+	if !is_article_page_url(full) {
 		t.Error("full article url should match")
 	}
-	partial, _ := url.Parse("https://mp.weixin.qq.com/s?chksm=xyz&scene=27")
-	if is_full_article_url(partial) {
-		t.Error("url without biz/mid/sn should not match")
+	image_detail, _ := url.Parse("https://mp.weixin.qq.com/s?t=pages/image_detail&scene=1&from_masonry=1&__biz=MzYy")
+	if !is_article_page_url(image_detail) {
+		t.Error("image detail page should match")
 	}
-	short, _ := url.Parse("https://mp.weixin.qq.com/s/AbCdEf")
-	if is_full_article_url(short) {
-		t.Error("short link should not match")
+	short, _ := url.Parse("https://mp.weixin.qq.com/s/LCbnMZCLy5ReOCYBApR91Q")
+	if !is_article_page_url(short) {
+		t.Error("short link should match")
+	}
+	feed, _ := url.Parse("https://mp.weixin.qq.com/s/index.html?data_version=8531129&from_mpxworker=1")
+	if is_article_page_url(feed) {
+		t.Error("feed list page should not match")
+	}
+	partial, _ := url.Parse("https://mp.weixin.qq.com/s?chksm=xyz&scene=27")
+	if is_article_page_url(partial) {
+		t.Error("url without biz should not match")
+	}
+	other, _ := url.Parse("https://mp.weixin.qq.com/mp/homepage")
+	if is_article_page_url(other) {
+		t.Error("non-article path should not match")
 	}
 }
 
